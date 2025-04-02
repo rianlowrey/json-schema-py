@@ -1,24 +1,61 @@
 #!/usr/bin/env python3
 """
-Command-line interface for the JSON validator.
+Enhanced JSON Schema Validator
+
+This script validates JSON data against a JSON Schema using
+the enhanced validator implementation.
+
+Usage:
+    python enhanced_validator_main.py <data_file> <schema_file> [--verbose]
 """
 
 import argparse
+import json
 import logging
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, Optional, List
 
-from .config_validator import ConfigValidator
-from .version import __version__
+from .api import JsonValidator
 
-logger = logging.getLogger("json_schema")
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s: %(message)s",
+)
+logger = logging.getLogger("enhanced_validator")
 
 
-def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
+def load_json(filepath: Path) -> Dict[str, Any]:
+    """
+    Load JSON from a file.
+
+    Args:
+        filepath: Path to the JSON file
+
+    Returns:
+        Parsed JSON data
+
+    Raises:
+        FileNotFoundError: If the file doesn't exist
+        json.JSONDecodeError: If the file contains invalid JSON
+    """
+
+    if filepath and (isinstance(filepath, str) and len(filepath) > 0) and not Path(filepath).exists():
+        raise FileNotFoundError(f"File not found: {filepath}")
+
+    with open(filepath, 'r', encoding='utf-8') as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON in {filepath}: {e}")
+            raise
+
+
+def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Validate JSON configuration files against a schema."
+        description="Validate JSON data against a JSON Schema."
     )
     parser.add_argument(
         "data_file",
@@ -31,66 +68,49 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Path to the JSON schema file"
     )
     parser.add_argument(
-        "--check-files",
-        action="store_true",
-        help="Verify that referenced files exist on disk"
-    )
-    parser.add_argument(
-        "--cmake-var",
-        action="append",
-        metavar="NAME=VALUE",
-        help="Define a CMake variable for path expansion (can be used multiple times)"
-    )
-    parser.add_argument(
         "--verbose", "-v",
         action="store_true",
         help="Enable verbose output"
     )
-    parser.add_argument(
-        "--version",
-        action="version",
-        version=f"%(prog)s {__version__}"
-    )
-    
-    return parser.parse_args(args)
+
+    return parser.parse_args()
 
 
 def main() -> int:
     """Main entry point for the script."""
     args = parse_args()
 
-    # Set base directory to the data file's directory for relative file path checking
     data_file_path = Path(args.data_file)
-    base_dir = data_file_path.parent if data_file_path.is_file() else Path.cwd()
+    schema_file_path = Path(args.schema_file)
 
-    # Parse any CMake variables provided
-    cmake_vars = {}
-    if args.cmake_var:
-        for var_def in args.cmake_var:
-            if "=" in var_def:
-                name, value = var_def.split("=", 1)
-                cmake_vars[name] = value
-
-    # Create the validator
-    validator = ConfigValidator(
-        check_file_existence=args.check_files,
-        verbose=args.verbose,
-        base_dir=base_dir,
-        cmake_vars=cmake_vars
-    )
-
-    # Perform validation
-    errors = validator.validate(args.data_file, args.schema_file)
-
-    # Report results
-    if errors:
-        logger.error("Validation failed:")
-        for error in errors:
-            logger.error(f"  - {error}")
+    # Load JSON files
+    try:
+        data = load_json(data_file_path)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        logger.error(str(e))
         return 1
 
-    logger.info("Validation successful!")
-    return 0
+    try:
+        schema = load_json(schema_file_path)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        logger.error(f"Schema error: {str(e)}")
+        return 1
+
+    # Create validator
+    validator = JsonValidator(verbose=args.verbose)
+
+    # Validate data
+    result = validator.validate(data, schema)
+
+    # Report results
+    if result.valid:
+        logger.info("Validation successful!")
+        return 0
+    else:
+        logger.error("Validation failed:")
+        for error in result.errors:
+            logger.error(f"  - {error}")
+        return 1
 
 
 if __name__ == "__main__":

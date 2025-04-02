@@ -7,105 +7,188 @@ import pytest
 # autopep8: off
 from utils import setup
 setup()
-from json_schema import JsonSchemaValidator
+from json_schema import ErrorCode, JsonValidator
 # autopep8: on
 
 
-def test_schema_validator_basic():
-    """Test basic schema validation."""
-    validator = JsonSchemaValidator()
+class TestBasicValidation:
+    """Tests for basic schema validation."""
 
-    # Valid case
-    schema = {"type": "object", "properties": {"name": {"type": "string"}}}
-    data = {"name": "test"}
-    errors = validator.validate(data, schema)
-    assert len(errors) == 0
+    def setup_method(self):
+        """Set up the test environment."""
+        self.validator = JsonValidator()
 
-    # Invalid type
-    data = {"name": 123}
-    errors = validator.validate(data, schema)
-    assert len(errors) > 0
-    assert any("Expected string" in error for error in errors)
+    def test_valid_object(self):
+        """Test basic validation of a valid object."""
+        schema = {"type": "object", "properties": {"name": {"type": "string"}}}
+        data = {"name": "test"}
 
-    # Test enum validation
-    schema = {"type": "string", "enum": ["red", "green", "blue"]}
-    assert len(validator.validate("red", schema)) == 0
-    assert len(validator.validate("yellow", schema)) > 0
+        result = self.validator.validate(data, schema)
+        assert result.valid
+        assert not result.errors
 
+    def test_invalid_type(self):
+        """Test validation of an object with an invalid property type."""
+        schema = {"type": "object", "properties": {"name": {"type": "string"}}}
+        data = {"name": 123}
 
-def test_type_validation():
-    """Test type validation edge cases in the schema validator."""
-    validator = JsonSchemaValidator()
+        result = self.validator.validate(data, schema)
+        assert not result.valid
+        assert len(result.errors) == 1
+        assert result.errors[0].code == ErrorCode.TYPE_ERROR
+        assert "Expected string" in result.errors[0].message
 
-    # Test boolean vs number/integer distinction
-    schema_number = {"type": "number"}
-    schema_integer = {"type": "integer"}
-    schema_boolean = {"type": "boolean"}
+    def test_enum_validation(self):
+        """Test validation against an enumeration."""
+        schema = {"type": "string", "enum": ["red", "green", "blue"]}
 
-    # Boolean should not be valid as a number
-    assert len(validator.validate(True, schema_number)) > 0
-    # Boolean should not be valid as an integer
-    assert len(validator.validate(True, schema_integer)) > 0
-    # Boolean should be valid as a boolean
-    assert len(validator.validate(True, schema_boolean)) == 0
+        # Valid value
+        result = self.validator.validate("red", schema)
+        assert result.valid
+        assert not result.errors
 
-    # Integer should be valid as a number
-    assert len(validator.validate(42, schema_number)) == 0
-    # Integer should be valid as an integer
-    assert len(validator.validate(42, schema_integer)) == 0
-    # Integer should not be valid as a boolean
-    assert len(validator.validate(42, schema_boolean)) > 0
+        # Invalid value
+        result = self.validator.validate("yellow", schema)
+        assert not result.valid
+        assert len(result.errors) == 1
+        assert result.errors[0].code == ErrorCode.ENUM_MISMATCH
+        assert "not in enumeration" in result.errors[0].message
 
-    # Float should be valid as a number
-    assert len(validator.validate(3.14, schema_number)) == 0
-    # Float should not be valid as an integer
-    assert len(validator.validate(3.14, schema_integer)) > 0
-    # Float should not be valid as a boolean
-    assert len(validator.validate(3.14, schema_boolean)) > 0
+    def test_const_validation(self):
+        """Test validation against a constant value."""
+        schema = {"const": 42}
 
+        # Valid value
+        result = self.validator.validate(42, schema)
+        assert result.valid
+        assert not result.errors
 
-def test_const_validation():
-    """Test const validation in the schema validator."""
-    validator = JsonSchemaValidator()
+        # Invalid value
+        result = self.validator.validate("not 42", schema)
+        assert not result.valid
+        assert len(result.errors) == 1
+        assert result.errors[0].code == ErrorCode.CONST_MISMATCH
+        assert "Expected constant value" in result.errors[0].message
 
-    schema = {"const": 42}
+    def test_multiple_types(self):
+        """Test validation against multiple types."""
+        schema = {"type": ["string", "number"]}
 
-    # Valid - matches const value
-    assert len(validator.validate(42, schema)) == 0
+        # Valid string
+        result = self.validator.validate("test", schema)
+        assert result.valid
 
-    # Invalid - doesn't match const value
-    errors = validator.validate("not 42", schema)
-    assert len(errors) > 0
-    assert any("Expected constant value" in error for error in errors)
+        # Valid number
+        result = self.validator.validate(123, schema)
+        assert result.valid
 
+        # Invalid type
+        result = self.validator.validate(True, schema)
+        assert not result.valid
+        assert len(result.errors) == 1
+        assert result.errors[0].code == ErrorCode.TYPE_ERROR
 
-def test_reference_resolution():
-    """Test reference resolution in the schema validator."""
-    validator = JsonSchemaValidator()
+    def test_type_edge_cases(self):
+        """Test edge cases in type validation."""
+        # Boolean vs number/integer distinction
+        schema_number = {"type": "number"}
+        schema_integer = {"type": "integer"}
+        schema_boolean = {"type": "boolean"}
 
-    schema = {
-        "definitions": {
-            "positiveInteger": {
-                "type": "integer",
-                "minimum": 1
+        # Boolean shouldn't be valid as a number
+        result = self.validator.validate(True, schema_number)
+        assert not result.valid
+
+        # Boolean shouldn't be valid as an integer
+        result = self.validator.validate(True, schema_integer)
+        assert not result.valid
+
+        # Boolean should be valid as a boolean
+        result = self.validator.validate(True, schema_boolean)
+        assert result.valid
+
+        # Integer should be valid as a number
+        result = self.validator.validate(42, schema_number)
+        assert result.valid
+
+        # Integer should be valid as an integer
+        result = self.validator.validate(42, schema_integer)
+        assert result.valid
+
+        # Integer shouldn't be valid as a boolean
+        result = self.validator.validate(42, schema_boolean)
+        assert not result.valid
+
+        # Float should be valid as a number
+        result = self.validator.validate(3.14, schema_number)
+        assert result.valid
+
+        # Float shouldn't be valid as an integer
+        result = self.validator.validate(3.14, schema_integer)
+        assert not result.valid
+
+        # Float shouldn't be valid as a boolean
+        result = self.validator.validate(3.14, schema_boolean)
+        assert not result.valid
+
+    def test_reference_resolution(self):
+        """Test resolution of schema references."""
+        schema = {
+            "definitions": {
+                "positiveInteger": {
+                    "type": "integer",
+                    "minimum": 1
+                }
+            },
+            "type": "object",
+            "properties": {
+                "count": {"$ref": "#/definitions/positiveInteger"}
             }
-        },
-        "type": "object",
-        "properties": {
-            "count": {"$ref": "#/definitions/positiveInteger"}
         }
-    }
 
-    # Valid data
-    data = {"count": 5}
-    errors = validator.validate(data, schema)
-    assert len(errors) == 0
+        # Valid data
+        result = self.validator.validate({"count": 5}, schema)
+        assert result.valid
 
-    # Invalid data (negative number)
-    data = {"count": -5}
-    errors = validator.validate(data, schema)
-    assert len(errors) > 0
-    assert any("minimum is 1" in error for error in errors)
+        # Invalid data (negative number)
+        result = self.validator.validate({"count": -5}, schema)
+        assert not result.valid
+        assert len(result.errors) == 1
+        assert result.errors[0].code == ErrorCode.NUMBER_TOO_SMALL
+
+    def test_nested_validation(self):
+        """Test validation of nested objects."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "person": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "age": {"type": "integer", "minimum": 0}
+                    },
+                    "required": ["name"]
+                }
+            }
+        }
+
+        # Valid data
+        result = self.validator.validate(
+            {"person": {"name": "John", "age": 30}}, schema)
+        assert result.valid
+
+        # Missing required property
+        result = self.validator.validate({"person": {"age": 30}}, schema)
+        assert not result.valid
+        assert len(result.errors) == 1
+        assert result.errors[0].code == ErrorCode.REQUIRED_PROPERTY_MISSING
+
+        # Value below minimum
+        result = self.validator.validate(
+            {"person": {"name": "John", "age": -5}}, schema)
+        assert not result.valid
+        assert len(result.errors) == 1
+        assert result.errors[0].code == ErrorCode.NUMBER_TOO_SMALL
 
 
 if __name__ == "__main__":

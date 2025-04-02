@@ -12,10 +12,12 @@ from pathlib import Path
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Run tests for the JSON validator")
+    parser = argparse.ArgumentParser(
+        description="Run tests for the JSON validator")
     parser.add_argument(
         "--category", "-c",
-        choices=["basic", "string", "number", "object", "array", "combinations", "integration", "all"],
+        choices=["basic", "string", "number", "object", "array",
+                 "logical", "complex", "ref", "misc", "integration", "all"],
         default="all",
         help="Test category to run"
     )
@@ -34,11 +36,11 @@ def parse_args():
 
 def main():
     args = parse_args()
-    
+
     # Determine which tests to run
     test_dir = Path(__file__).parent.joinpath("tests")
     pytest_args = ["-xvs"] if args.verbose else []
-    
+
     if args.file:
         # Run a specific test file
         test_file = test_dir / args.file
@@ -58,14 +60,22 @@ def main():
             pytest_args.append(str(test_dir / "object_validation_test.py"))
         if args.category == "array" or args.category == "all":
             pytest_args.append(str(test_dir / "array_validation_test.py"))
-        if args.category == "combinations" or args.category == "all":
-            pytest_args.append(str(test_dir / "schema_validation_test.py"))
+        if args.category == "logical" or args.category == "all":
+            pytest_args.append(str(test_dir / "logical_validation_test.py"))
+        if args.category == "complex" or args.category == "all":
+            pytest_args.append(str(test_dir / "complex_validation_test.py"))
+        if args.category == "ref" or args.category == "all":
+            pytest_args.append(str(test_dir / "reference_validation_test.py"))
         if args.category == "integration" or args.category == "all":
             pytest_args.append(str(test_dir / "integration_test.py"))
+        if args.category == "misc" or args.category == "all":
+            pytest_args.append(str(test_dir / "main_test.py"))
+            pytest_args.append(str(test_dir / "utils_test.py"))
 
     print(f"Running tests: {' '.join(pytest_args)}")
 
-    import sys,os
+    import sys
+    import os
     sys.path.append(os.pardir)
 
     return pytest.main(pytest_args)

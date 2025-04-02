@@ -7,145 +7,181 @@ import pytest
 # autopep8: off
 from utils import setup
 setup()
-from json_schema import JsonSchemaValidator
+from json_schema import ErrorCode, JsonValidator
 # autopep8: on
 
 
-def test_string_constraints():
-    """Test string-specific constraints in the schema validator."""
-    validator = JsonSchemaValidator()
+class TestStringValidation:
+    """Tests for string-specific schema validation."""
 
-    # Test minLength and maxLength
-    schema = {
-        "type": "string",
-        "minLength": 3,
-        "maxLength": 10
-    }
+    def setup_method(self):
+        """Set up the test environment."""
+        self.validator = JsonValidator()
 
-    # Valid - within length constraints
-    assert len(validator.validate("test", schema)) == 0
-
-    # Invalid - too short
-    errors = validator.validate("ab", schema)
-    assert len(errors) > 0
-    assert any("minimum is 3" in error for error in errors)
-
-    # Invalid - too long
-    errors = validator.validate("this_is_too_long", schema)
-    assert len(errors) > 0
-    assert any("maximum is 10" in error for error in errors)
-
-    # Test pattern
-    pattern_schema = {
-        "type": "string",
-        "pattern": "^[a-z]+$"
-    }
-
-    # Valid - matches pattern
-    assert len(validator.validate("abcdef", pattern_schema)) == 0
-
-    # Invalid - doesn't match pattern
-    errors = validator.validate("123abc", pattern_schema)
-    assert len(errors) > 0
-    assert any("does not match pattern" in error for error in errors)
-
-    # Test standalone constraints (no type specified)
-    standalone_schema = {
-        "minLength": 3,
-        "pattern": "^[A-Z]"
-    }
-
-    # String should be validated even without type
-    assert len(validator.validate("Abc", standalone_schema)) == 0
-    errors = validator.validate("ab", standalone_schema)
-    assert len(errors) > 0
-    assert any("minimum is 3" in error for error in errors)
-
-    # Non-string value should not trigger string validations
-    errors = validator.validate(123, standalone_schema)
-    assert len(errors) == 1
-    assert any("Expected string, got int" in error for error in errors)
-
-
-def test_pattern_validation():
-    """Test pattern-based validation in various contexts."""
-    validator = JsonSchemaValidator()
-
-    # Basic pattern validation
-    schema = {"pattern": "^[A-Z][a-z]+$"}
-
-    # Valid - matches pattern
-    assert len(validator.validate("Hello", schema)) == 0
-
-    # Invalid - doesn't match pattern
-    # Doesn't start with uppercase
-    errors = validator.validate("hello", schema)
-    assert len(errors) > 0
-    assert any("does not match pattern" in error for error in errors)
-
-    # Not lowercase after first letter
-    errors = validator.validate("HELLO", schema)
-    assert len(errors) > 0
-
-    # Pattern in property validation
-    schema = {
-        "type": "object",
-        "properties": {
-            "email": {"pattern": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"},
-            "phone": {"pattern": "^\\+?[0-9\\s()\\-]{8,20}$"}
+    def test_string_constraints(self):
+        """Test string-specific constraints."""
+        schema = {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 10
         }
-    }
 
-    # Valid data
-    data = {
-        "email": "user@example.com",
-        "phone": "+1 (555) 123-4567"
-    }
-    assert len(validator.validate(data, schema)) == 0
+        # Valid - within length constraints
+        result = self.validator.validate("test", schema)
+        assert result.valid
 
-    # Invalid data
-    data = {
-        "email": "invalid-email",
-        "phone": "555"
-    }
-    errors = validator.validate(data, schema)
-    assert len(errors) >= 2
+        # Invalid - too short
+        result = self.validator.validate("ab", schema)
+        assert not result.valid
+        assert len(result.errors) == 1
+        assert result.errors[0].code == ErrorCode.STRING_TOO_SHORT
+        assert "minimum" in result.errors[0].message
 
-    # Non-string values with pattern
-    schema = {"type": "string", "pattern": "^\\d+$"}
-    errors = validator.validate(42, schema)
-    assert len(errors) > 0
-    assert any("Expected string, got int" in error for error in errors)
+        # Invalid - too long
+        result = self.validator.validate("this_is_too_long", schema)
+        assert not result.valid
+        assert len(result.errors) == 1
+        assert result.errors[0].code == ErrorCode.STRING_TOO_LONG
+        assert "maximum" in result.errors[0].message
 
-    # Pattern in patternProperties
-    schema = {
-        "type": "object",
-        "patternProperties": {
-            "^user_[0-9]+$": {"type": "object"},
-            "^data_[a-z]+$": {"type": "array"}
-        },
-        "additionalProperties": False
-    }
+    def test_pattern_validation(self):
+        """Test pattern-based validation."""
+        schema = {
+            "type": "string",
+            "pattern": "^[a-z]+$"
+        }
 
-    # Valid - all properties match patterns
-    data = {
-        "user_123": {"name": "John"},
-        "user_456": {"name": "Jane"},
-        "data_items": [1, 2, 3]
-    }
-    assert len(validator.validate(data, schema)) == 0
+        # Valid - matches pattern
+        result = self.validator.validate("abcdef", schema)
+        assert result.valid
 
-    # Invalid - some properties don't match patterns
-    data = {
-        "user123": {"name": "John"},  # Missing underscore
-        "data-items": [1, 2, 3]       # Has hyphen instead of underscore
-    }
-    errors = validator.validate(data, schema)
-    assert len(errors) >= 2
-    assert any(
-        "Additional property 'user123' not allowed" in error for error in errors)
-    assert any(
-        "Additional property 'data-items' not allowed" in error for error in errors)
+        # Invalid - doesn't match pattern
+        result = self.validator.validate("123abc", schema)
+        assert not result.valid
+        assert len(result.errors) == 1
+        assert result.errors[0].code == ErrorCode.PATTERN_MISMATCH
+        assert "pattern" in result.errors[0].message
+
+        result = self.validator.validate("ABCDEF", schema)
+        assert not result.valid
+        assert len(result.errors) == 1
+        assert result.errors[0].code == ErrorCode.PATTERN_MISMATCH
+
+    def test_email_pattern(self):
+        """Test validation with a common email pattern."""
+        schema = {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+        }
+
+        # Valid - matches email pattern
+        result = self.validator.validate("user@example.com", schema)
+        assert result.valid
+
+        # Invalid - doesn't match email pattern
+        result = self.validator.validate("not-an-email", schema)
+        assert not result.valid
+        assert len(result.errors) == 1
+        assert result.errors[0].code == ErrorCode.PATTERN_MISMATCH
+
+    def test_invalid_pattern(self):
+        """Test handling of invalid regex patterns."""
+        schema = {
+            "type": "string",
+            "pattern": "["  # Invalid regex pattern
+        }
+
+        result = self.validator.validate("test", schema)
+        assert not result.valid
+        assert len(result.errors) == 1
+        assert result.errors[0].code == ErrorCode.SCHEMA_INVALID
+        assert "Invalid regex pattern" in result.errors[0].message
+
+    def test_standalone_constraints(self):
+        """Test string constraints without explicit type."""
+        schema = {
+            "minLength": 3,
+            "pattern": "^[A-Z]"
+        }
+
+        # Valid string
+        result = self.validator.validate("Abc", schema)
+        assert result.valid
+
+        # Invalid - too short
+        result = self.validator.validate("Ab", schema)
+        assert not result.valid
+        assert len(result.errors) == 1
+        assert result.errors[0].code == ErrorCode.STRING_TOO_SHORT
+
+        # Invalid - doesn't match pattern
+        result = self.validator.validate("abc", schema)
+        assert not result.valid
+        assert len(result.errors) == 1
+        assert result.errors[0].code == ErrorCode.PATTERN_MISMATCH
+
+        # Invalid - hould not apply to non-strings
+        result = self.validator.validate(123, schema)
+        assert not result.valid
+        assert len(result.errors) == 1
+        assert result.errors[0].code == ErrorCode.TYPE_ERROR
+
+    def test_nested_string_validation(self):
+        """Test string validation in nested objects."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "user": {
+                    "type": "object",
+                    "properties": {
+                        "username": {
+                            "type": "string",
+                            "minLength": 3,
+                            "maxLength": 20,
+                            "pattern": "^[a-zA-Z0-9_]+$"
+                        },
+                        "email": {
+                            "type": "string",
+                            "pattern": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+                        }
+                    }
+                }
+            }
+        }
+
+        # Valid data
+        data = {
+            "user": {
+                "username": "johndoe",
+                "email": "john@example.com"
+            }
+        }
+        result = self.validator.validate(data, schema)
+        assert result.valid
+
+        # Invalid username (contains special characters)
+        data = {
+            "user": {
+                "username": "john@doe",
+                "email": "john@example.com"
+            }
+        }
+        result = self.validator.validate(data, schema)
+        assert not result.valid
+        assert len(result.errors) == 1
+        assert result.errors[0].code == ErrorCode.PATTERN_MISMATCH
+
+        # Invalid email
+        data = {
+            "user": {
+                "username": "johndoe",
+                "email": "invalid-email"
+            }
+        }
+        result = self.validator.validate(data, schema)
+        assert not result.valid
+        assert len(result.errors) == 1
+        assert result.errors[0].code == ErrorCode.PATTERN_MISMATCH
 
 
 if __name__ == "__main__":
